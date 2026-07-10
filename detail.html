@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>과정 상세 · 2026 부산대학교 직무연수</title>
+  <meta name="description" content="2026 부산대학교 직무연수 과정 상세 안내" />
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="index.html">
+        <span class="logo">PNU</span>
+        <span class="txt">부산대학교 직무연수<small>2026 교직원 역량강화</small></span>
+      </a>
+      <a class="header-link" href="index.html">과정 목록</a>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <a class="back-link" href="index.html">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      목록으로
+    </a>
+
+    <div id="skeleton" class="state"><p>불러오는 중…</p></div>
+
+    <div id="content" hidden>
+      <section class="detail-hero">
+        <div class="tags" id="tags"></div>
+        <h1 id="title"></h1>
+        <p class="lead" id="lead"></p>
+        <div class="code" id="code"></div>
+      </section>
+
+      <div class="detail-layout">
+        <div class="detail-main" id="main"></div>
+        <aside>
+          <div class="info-card">
+            <h3>과정 정보</h3>
+            <div id="info"></div>
+            <a class="btn btn--primary" id="applyBtn" target="_blank" rel="noopener" hidden>신청 페이지로 이동 ↗</a>
+            <div class="contact" id="contact"></div>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <div id="notfound" class="state" hidden>
+      <h2>과정을 찾을 수 없습니다</h2>
+      <p id="notfoundMsg">요청하신 과정 정보가 없습니다.</p>
+      <a class="btn btn--primary" href="index.html">전체 과정 보기</a>
+    </div>
+
+    <div id="error" class="state" hidden>
+      <h2>데이터를 불러오지 못했습니다</h2>
+      <p id="errorMsg"></p>
+      <button class="btn btn--primary" id="retry" type="button">다시 시도</button>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <span>© 2026 부산대학교 인재개발원 · 직무연수 안내</span>
+      <span>데이터는 구글 시트에서 실시간으로 제공됩니다.</span>
+    </div>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="assets/app.js"></script>
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    async function init() {
+      $('error').hidden = true; $('notfound').hidden = true; $('content').hidden = true;
+      $('skeleton').hidden = false;
+      const code = (getParam('code') || '').trim();
+      if (!code) { $('skeleton').hidden = true; showNotFound('과정 코드가 지정되지 않았습니다.'); return; }
+      try {
+        const courses = await loadCourses();
+        const course = courses.find((c) => (c[COL.CODE] || '').trim() === code);
+        $('skeleton').hidden = true;
+        if (!course) { showNotFound(`'${code}' 과정을 찾을 수 없습니다.`); return; }
+        renderCourse(course);
+      } catch (e) {
+        $('skeleton').hidden = true;
+        $('error').hidden = false; $('errorMsg').textContent = e.message;
+      }
+    }
+
+    function showNotFound(msg) { $('notfound').hidden = false; $('notfoundMsg').textContent = msg; }
+
+    function renderCourse(c) {
+      document.title = c[COL.NAME] + ' · 2026 부산대학교 직무연수';
+      const fc = fieldColor(c[COL.FIELD]);
+
+      $('tags').innerHTML =
+        `<span class="field-chip" style="background:${fc.bg};color:${fc.fg}">${escapeHtml(c[COL.FIELD])}</span>` +
+        `<span class="badge ${typeClass(c[COL.TYPE])}">${escapeHtml(c[COL.TYPE])}</span>` +
+        (c[COL.METHOD] ? `<span class="badge badge--method">${escapeHtml(c[COL.METHOD])}</span>` : '');
+      $('title').textContent = c[COL.NAME];
+      $('lead').textContent = c[COL.SUMMARY] || '';
+      $('code').textContent = c[COL.CODE];
+
+      // 본문 섹션 (빈 값은 자동 숨김)
+      const sections = [];
+      if (c[COL.DESC]) sections.push(`<section><h2>과정 소개</h2><p>${escapeHtml(c[COL.DESC])}</p></section>`);
+      const goals = splitList(c[COL.GOALS]);
+      if (goals.length) sections.push(`<section><h2>학습 목표</h2><ul>${goals.map((g) => `<li>${escapeHtml(g)}</li>`).join('')}</ul></section>`);
+      const content = splitList(c[COL.CONTENT]);
+      if (content.length) sections.push(`<section><h2>주요 내용</h2><ul>${content.map((g) => `<li>${escapeHtml(g)}</li>`).join('')}</ul></section>`);
+      $('main').innerHTML = sections.join('');
+
+      // 요약 정보 카드
+      const rows = [
+        ['대상', c[COL.TARGET]], ['이수구분', c[COL.TYPE]], ['교육방식', c[COL.METHOD]],
+        ['교육시간', c[COL.HOURS]], ['정원', c[COL.CAPACITY]], ['교육기간', c[COL.PERIOD]],
+        ['신청기간', c[COL.APPLY_PERIOD]], ['담당부서', c[COL.DEPT]],
+      ].filter(([, v]) => v && v.trim());
+      $('info').innerHTML = rows.map(([k, v]) => `<div class="info-row"><span class="k">${k}</span><span class="v">${escapeHtml(v)}</span></div>`).join('');
+
+      const link = (c[COL.LINK] || '').trim();
+      if (link) { $('applyBtn').href = link; $('applyBtn').hidden = false; }
+      if (c[COL.CONTACT]) $('contact').textContent = '문의 · ' + c[COL.CONTACT];
+
+      $('content').hidden = false;
+    }
+
+    $('retry').addEventListener('click', init);
+    init();
+  </script>
+</body>
+</html>

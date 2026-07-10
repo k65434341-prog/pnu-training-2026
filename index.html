@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>2026 부산대학교 직무연수 안내</title>
+  <meta name="description" content="부산대학교 교직원을 위한 2026년 직무연수 과정을 분야·대상·이수구분으로 찾아보고 신청하세요." />
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="index.html">
+        <span class="logo">PNU</span>
+        <span class="txt">부산대학교 직무연수<small>2026 교직원 역량강화</small></span>
+      </a>
+      <a class="header-link" href="#courses">과정 목록</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="wrap">
+        <span class="eyebrow">2026 직무연수</span>
+        <h1>올해 나에게 맞는 연수를<br />한눈에 찾아보세요</h1>
+        <p>부산대학교 교직원을 위한 2026년 직무연수 과정입니다. 분야·대상·이수구분으로 필터링하고, 원하는 과정을 눌러 상세 내용을 확인한 뒤 바로 신청할 수 있습니다.</p>
+        <div class="stats" id="stats" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <div id="courses"></div>
+
+    <section class="toolbar" id="toolbar" hidden>
+      <div class="wrap">
+        <div class="searchbar">
+          <svg class="icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="search" type="search" placeholder="과정명·키워드로 검색 (예: AI, 회계, 안전)" aria-label="과정 검색" />
+        </div>
+        <div class="filters" id="filters"></div>
+        <div class="toolbar-foot">
+          <span class="result-count" id="resultCount"></span>
+          <button class="btn-reset" id="reset" type="button">필터 초기화</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="wrap">
+      <div class="skeleton-grid" id="skeleton">
+        <div class="skel"></div><div class="skel"></div><div class="skel"></div>
+        <div class="skel"></div><div class="skel"></div><div class="skel"></div>
+      </div>
+      <div class="grid" id="grid" hidden></div>
+      <div class="state" id="empty" hidden>
+        <h2>조건에 맞는 과정이 없습니다</h2>
+        <p>검색어나 필터를 바꿔보세요.</p>
+      </div>
+      <div class="state" id="error" hidden>
+        <h2>데이터를 불러오지 못했습니다</h2>
+        <p id="errorMsg"></p>
+        <button class="btn btn--primary" id="retry" type="button">다시 시도</button>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <span>© 2026 부산대학교 인재개발원 · 직무연수 안내</span>
+      <span>데이터는 구글 시트에서 실시간으로 제공됩니다.</span>
+    </div>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="assets/app.js"></script>
+  <script>
+    let ALL = [];
+    const selected = {};           // facet -> Set(선택값)
+    FACETS.forEach((f) => (selected[f] = new Set()));
+    let query = '';
+
+    const $ = (id) => document.getElementById(id);
+
+    async function init() {
+      showError(false);
+      $('skeleton').hidden = false;
+      $('grid').hidden = true;
+      try {
+        ALL = await loadCourses();
+        buildStats();
+        buildFilters();
+        wireControls();
+        $('skeleton').hidden = true;
+        $('toolbar').hidden = false;
+        render();
+      } catch (e) {
+        $('skeleton').hidden = true;
+        showError(true, e.message);
+      }
+    }
+
+    function buildStats() {
+      const fields = distinctValues(ALL, COL.FIELD).length;
+      const required = ALL.filter((c) => (c[COL.TYPE] || '').startsWith('필수')).length;
+      $('stats').innerHTML = [
+        ['전체 과정', ALL.length + '개'],
+        ['교육 분야', fields + '개'],
+        ['필수 이수', required + '개'],
+      ].map(([l, n]) => `<div class="stat"><div class="num">${n}</div><div class="label">${l}</div></div>`).join('');
+    }
+
+    function buildFilters() {
+      const labels = { [COL.FIELD]: '분야', [COL.TARGET]: '대상', [COL.TYPE]: '이수구분', [COL.METHOD]: '교육방식', [COL.DEPT]: '담당부서' };
+      $('filters').innerHTML = FACETS.map((facet) => {
+        const opts = distinctValues(ALL, facet);
+        const chips = opts.map((v) =>
+          `<button class="chip" type="button" role="button" aria-pressed="false" data-facet="${escapeHtml(facet)}" data-value="${escapeHtml(v)}">${escapeHtml(v)}</button>`
+        ).join('');
+        return `<div class="facet"><span class="facet-label">${labels[facet]}</span><div class="chips">${chips}</div></div>`;
+      }).join('');
+
+      $('filters').querySelectorAll('.chip').forEach((chip) => {
+        chip.addEventListener('click', () => {
+          const f = chip.dataset.facet, v = chip.dataset.value;
+          if (selected[f].has(v)) { selected[f].delete(v); chip.setAttribute('aria-pressed', 'false'); }
+          else { selected[f].add(v); chip.setAttribute('aria-pressed', 'true'); }
+          render();
+        });
+      });
+    }
+
+    function wireControls() {
+      let t;
+      $('search').addEventListener('input', (e) => {
+        clearTimeout(t);
+        t = setTimeout(() => { query = e.target.value.trim().toLowerCase(); render(); }, 200);
+      });
+      $('reset').addEventListener('click', () => {
+        query = ''; $('search').value = '';
+        FACETS.forEach((f) => selected[f].clear());
+        $('filters').querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', 'false'));
+        render();
+      });
+      $('retry').addEventListener('click', init);
+    }
+
+    function matches(c) {
+      if (query) {
+        const hay = (c[COL.NAME] + ' ' + c[COL.SUMMARY] + ' ' + c[COL.DESC]).toLowerCase();
+        if (!hay.includes(query)) return false;
+      }
+      for (const f of FACETS) {
+        const sel = selected[f];
+        if (sel.size && !sel.has((c[f] || '').trim())) return false;
+      }
+      return true;
+    }
+
+    function render() {
+      const list = ALL.filter(matches);
+      $('resultCount').innerHTML = `전체 ${ALL.length}개 중 <b>${list.length}개</b>`;
+      const grid = $('grid');
+      $('empty').hidden = list.length !== 0;
+      grid.hidden = list.length === 0;
+      grid.innerHTML = list.map(cardHTML).join('');
+    }
+
+    function cardHTML(c) {
+      const fc = fieldColor(c[COL.FIELD]);
+      const meta = [
+        ['대상', c[COL.TARGET]], ['방식', c[COL.METHOD]],
+        ['시간', c[COL.HOURS]], ['신청', c[COL.APPLY_PERIOD]],
+      ].filter(([, v]) => v).map(([k, v]) => `<span><span class="k">${k}</span> ${escapeHtml(v)}</span>`).join('');
+      return `<a class="card" href="detail.html?code=${encodeURIComponent(c[COL.CODE])}">
+        <div class="card-top">
+          <span class="field-chip" style="background:${fc.bg};color:${fc.fg}">${escapeHtml(c[COL.FIELD])}</span>
+          <span class="badge ${typeClass(c[COL.TYPE])}">${escapeHtml(c[COL.TYPE])}</span>
+        </div>
+        <h3>${escapeHtml(c[COL.NAME])}</h3>
+        <p class="summary">${escapeHtml(c[COL.SUMMARY])}</p>
+        <div class="meta">${meta}</div>
+      </a>`;
+    }
+
+    function showError(show, msg) {
+      $('error').hidden = !show;
+      if (show) { $('errorMsg').textContent = msg || ''; $('toolbar').hidden = true; $('grid').hidden = true; $('empty').hidden = true; }
+    }
+
+    init();
+  </script>
+</body>
+</html>
